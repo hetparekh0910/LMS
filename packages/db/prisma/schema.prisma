@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+}
+
+enum CourseStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  UNPUBLISHED
+}
+
+enum LessonType {
+  VIDEO
+  TEXT
+}
+
+enum VideoStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum QuestionType {
+  SINGLE
+  MULTI
+  TRUE_FALSE
+}
+
+enum LiveStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PayoutStatus {
+  REQUESTED
+  PAID
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(STUDENT)
+  createdAt    DateTime @default(now())
+
+  courses      Course[]        @relation("InstructorCourses")
+  enrollments  Enrollment[]
+  payments     Payment[]
+  earnings     EarningLedger[]
+  payouts      Payout[]
+  chatMessages ChatMessage[]
+  videoAssets  VideoAsset[]
+}
+
+model Course {
+  id           String       @id @default(cuid())
+  instructorId String
+  title        String
+  description  String
+  category     String?
+  price        Int          @default(0) // smallest currency unit (paise/cents)
+  currency     String       @default("INR")
+  status       CourseStatus @default(DRAFT)
+  thumbnailKey String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  instructor  User         @relation("InstructorCourses", fields: [instructorId], references: [id])
+  sections    Section[]
+  quizzes     Quiz[]
+  enrollments Enrollment[]
+  liveClasses LiveClass[]
+  payments    Payment[]
+
+  @@index([instructorId])
+  @@index([status])
+}
+
+model Section {
+  id       String @id @default(cuid())
+  courseId String
+  title    String
+  order    Int
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+  quizzes Quiz[]
+
+  @@index([courseId, order])
+}
+
+model Lesson {
+  id           String     @id @default(cuid())
+  sectionId    String
+  title        String
+  order        Int
+  type         LessonType @default(VIDEO)
+  content      String?
+  videoAssetId String?    @unique
+  durationSec  Int        @default(0)
+
+  section    Section          @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  videoAsset VideoAsset?      @relation(fields: [videoAssetId], references: [id])
+  progress   LessonProgress[]
+
+  @@index([sectionId, order])
+}
+
+model VideoAsset {
+  id            String      @id @default(cuid())
+  ownerId       String
+  originalName  String
+  rawKey        String
+  hlsKey        String? // e.g. hls/<id>/master.m3u8
+  thumbnailKey  String?
+  status        VideoStatus @default(UPLOADED)
+  progress      Int         @default(0)
+  renditions    String[]
+  durationSec   Int         @default(0)
+  errorMessage  String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  owner  User    @relation(fields: [ownerId], references: [id])
+  lesson Lesson?
+}
+
+model Enrollment {
+  id          String    @id @default(cuid())
+  userId      String
+  courseId    String
+  paymentId   String?   @unique
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+
+  user        User             @relation(fields: [userId], references: [id])
+  course      Course           @relation(fields: [courseId], references: [id])
+  payment     Payment?         @relation(fields: [paymentId], references: [id])
+  progress    LessonProgress[]
+  attempts    QuizAttempt[]
+  certificate Certificate?
+
+  @@unique([userId, courseId])
+}
+
+model LessonProgress {
+  id              String   @id @default(cuid())
+  enrollmentId    String
+  lessonId        String
+  completed       Boolean  @default(false)
+  lastPositionSec Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lesson     Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([enrollmentId, lessonId])
+}
+
+model Quiz {
+  id          String  @id @default(cuid())
+  courseId    String
+  sectionId   String?
+  title       String
+  passMark    Int     @default(60) // percent
+  maxAttempts Int     @default(3)
+  required    Boolean @default(true)
+
+  course    Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  section   Section?      @relation(fields: [sectionId], references: [id])
+  questions Question[]
+  attempts  QuizAttempt[]
+}
+
+model Question {
+  id     String       @id @default(cuid())
+  quizId String
+  text   String
+  type   QuestionType @default(SINGLE)
+  points Int          @default(1)
+  order  Int          @default(0)
+
+  quiz    Quiz            @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  options Option[]
+  answers AttemptAnswer[]
+}
+
+model Option {
+  id         String  @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean @default(false)
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model QuizAttempt {
+  id           String    @id @default(cuid())
+  enrollmentId String
+  quizId       String
+  score        Int       @default(0) // percent
+  passed       Boolean   @default(false)
+  startedAt    DateTime  @default(now())
+  submittedAt  DateTime?
+
+  enrollment Enrollment      @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  quiz       Quiz            @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers    AttemptAnswer[]
+
+  @@index([enrollmentId, quizId])
+}
+
+model AttemptAnswer {
+  id                String   @id @default(cuid())
+  attemptId         String
+  questionId        String
+  selectedOptionIds String[]
+  isCorrect         Boolean  @default(false)
+  pointsAwarded     Int      @default(0)
+
+  attempt  QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model LiveClass {
+  id          String     @id @default(cuid())
+  courseId    String
+  title       String
+  scheduledAt DateTime
+  roomName    String     @unique
+  status      LiveStatus @default(SCHEDULED)
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  course   Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  liveClassId String
+  userId      String
+  body        String
+  createdAt   DateTime @default(now())
+
+  liveClass LiveClass @relation(fields: [liveClassId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([liveClassId, createdAt])
+}
+
+model Certificate {
+  id           String   @id @default(cuid())
+  enrollmentId String   @unique
+  code         String   @unique
+  issuedAt     DateTime @default(now())
+  pdfKey       String?
+
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String
+  courseId        String
+  amount          Int
+  currency        String        @default("INR")
+  provider        String        @default("razorpay")
+  providerOrderId String?       @unique
+  providerPayId   String?
+  status          PaymentStatus @default(PENDING)
+  createdAt       DateTime      @default(now())
+
+  user       User            @relation(fields: [userId], references: [id])
+  course     Course          @relation(fields: [courseId], references: [id])
+  enrollment Enrollment?
+  ledger     EarningLedger?
+}
+
+model EarningLedger {
+  id           String   @id @default(cuid())
+  instructorId String
+  paymentId    String   @unique
+  gross        Int
+  platformFee  Int
+  net          Int
+  createdAt    DateTime @default(now())
+
+  instructor User    @relation(fields: [instructorId], references: [id])
+  payment    Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([instructorId, createdAt])
+}
+
+model Payout {
+  id           String       @id @default(cuid())
+  instructorId String
+  amount       Int
+  status       PayoutStatus @default(REQUESTED)
+  createdAt    DateTime     @default(now())
+
+  instructor User @relation(fields: [instructorId], references: [id])
+}
