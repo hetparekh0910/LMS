@@ -14,6 +14,8 @@ const schema = z.object({
   JWT_REFRESH_SECRET: z.string().min(16),
   ACCESS_TTL: z.string().default("15m"),
   REFRESH_TTL: z.string().default("7d"),
+AWS_REGION: z.string().default("ap-south-1"),
+  S3_BUCKET: z.string(),
 });
 
 export const config = schema.parse(process.env);

@@ -37,3 +37,16 @@ export const requireRole =
     if (!roles.includes(req.user.role)) return next(new HttpError(403, "Forbidden"));
     next();
   };
+
+  export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  if (header?.startsWith("Bearer ")) {
+    try {
+      const payload = jwt.verify(header.slice(7), config.JWT_ACCESS_SECRET) as jwt.JwtPayload;
+      req.user = { id: payload.sub as string, role: payload.role as Role };
+    } catch {
+      /* ignore invalid token on public routes */
+    }
+  }
+  next();
+}

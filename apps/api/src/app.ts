@@ -8,6 +8,9 @@ import { config } from "./config";
 import { authenticate, requireRole } from "./middleware/auth";
 import { asyncHandler, errorHandler } from "./middleware/error";
 import { authRouter } from "./modules/auth/auth.routes";
+import { contentRouter, courseRouter } from "./modules/courses/courses.routes";
+import { videoRouter } from "./modules/videos/videos.routes";
+import { adminRouter } from "./modules/admin/admin.routes";
 
 export const app = express();
 
@@ -20,7 +23,6 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.use("/auth", rateLimit({ windowMs: 15 * 60 * 1000, limit: 200 }), authRouter);
 
-// Admin-only demo route proving RBAC works
 app.get(
   "/admin/users",
   authenticate,
@@ -33,5 +35,10 @@ app.get(
     res.json({ users });
   })
 );
+
+app.use("/courses", courseRouter);
+app.use("/", contentRouter);
+app.use("/videos", videoRouter);
+app.use("/admin", adminRouter);
 
 app.use(errorHandler);
